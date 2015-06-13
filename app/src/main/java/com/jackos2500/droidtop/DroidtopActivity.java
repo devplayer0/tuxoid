@@ -9,9 +9,6 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 
-import gnu.x11.Display;
-import gnu.x11.extension.XTest;
-
 import static com.jackos2500.droidtop.DroidtopApplication.debug;
 
 public class DroidtopActivity extends Activity implements DroidtopSurfaceView.ErrorListener {

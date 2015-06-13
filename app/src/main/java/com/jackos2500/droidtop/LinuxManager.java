@@ -32,8 +32,6 @@ import java.util.List;
 import java.util.Map;
 
 import eu.chainfire.libsuperuser.Shell;
-import gnu.x11.Display;
-import gnu.x11.extension.XTest;
 
 import static com.jackos2500.droidtop.DroidtopApplication.debug;
 import static com.jackos2500.droidtop.DroidtopApplication.debugException;
