@@ -26,4 +26,7 @@
     <string name="pref_image_size">Disk image size</string>
     <string name="pref_image_name">Disk image name</string>
     <string name="pref_hostname">System name</string>
+
+    <string name="crash_dialog">Tuxoid crashed. Please send a report to the developer so that he can try and fix the problem!!</string>
+    <string name="report_log">Send log</string>
 </resources>

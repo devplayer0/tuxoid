@@ -13,6 +13,9 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
+
+import org.acra.ACRA;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -69,6 +72,10 @@ public class LauncherActivity extends Activity {
         switch(button.getId()) {
             case R.id.start_button:
                 startService(serviceIntent);
+                break;
+            case R.id.report_button:
+                ACRA.getErrorReporter().handleSilentException(new Throwable("log report: "+logText.replace("\n", ",")));
+                Toast.makeText(this, "Sent log to developer!", Toast.LENGTH_SHORT).show();
                 break;
             case R.id.stop_button:
                 serviceIntent.putExtra("stop", true);

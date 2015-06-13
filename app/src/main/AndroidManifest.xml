@@ -39,6 +39,12 @@
             android:parentActivityName=".LauncherActivity" >
         </activity>
 
+        <activity android:name="org.acra.CrashReportDialog"
+            android:theme="@style/Theme.Dialog"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:finishOnTaskLaunch="true" />
+
         <service
             android:name=".LinuxService"
             android:enabled="true"

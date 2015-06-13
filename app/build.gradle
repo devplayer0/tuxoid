@@ -22,4 +22,5 @@ android {
 dependencies {
     compile fileTree(include: ['*.jar'], dir: 'libs')
     compile 'eu.chainfire:libsuperuser:+'
+    compile 'ch.acra:acra:4.6.2'
 }
