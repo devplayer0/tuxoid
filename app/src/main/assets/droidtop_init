@@ -1,0 +1,532 @@
+#!/usr/bin/env python2
+
+"""
+
+%s: Linux init replacement for chroot
+
+Options:
+    -o, --logfile=LOGFILE_PATH    Sets the path to the log file. Default: '/var/log/%s'
+    -s, --service-output=PATH     Sets the path to write service output to. Default: '/var/log/droidtop_init/services/'
+    -l, --logging-level=LEVEL     Set the log level. Valid options are CRITICAL, ERROR, WARNING, INFO and DEBUG. Default: INFO
+
+"""
+
+import subprocess
+import tempfile
+import logging
+import time
+import os
+import sys
+import getopt
+import signal
+import json
+import unicodedata
+import socket
+import errno
+
+from threading import Thread
+
+from droidtop import DroidtopInit
+from droidtop.ttypes import *
+
+from thrift.transport import TSocket
+from thrift.transport import TTransport
+from thrift.protocol import TBinaryProtocol
+from thrift.server.TServer import TServer
+
+LOG_NAME = "droidtop-init"
+def usage(e=None):
+    if e:
+        print("Error: %s" % e)
+
+    cmd = os.path.basename(sys.argv[0])
+    print(__doc__.strip() % (cmd, cmd))
+
+    if e:
+        sys.exit(1)
+    else:
+        sys.exit(0)
+
+class ChrootProcess:
+    def __init__(self, cmd, args, logFile=None):
+        if (cmd == ""):
+            raise OSError("command must not be empty")
+
+        self.log = logging.getLogger(LOG_NAME)
+        self.binary = cmd
+        self.args = args
+        self.killed = False
+        if type(logFile) == file:
+            self.stdout = logFile
+        else:
+            self.stdout = tempfile.NamedTemporaryFile()
+        self.process = None
+    def start(self):
+        self.log.debug("running binary '%s' with args %s...", self.binary, self.args)
+        self.process = subprocess.Popen([self.binary] + self.args, stdout=self.stdout, stderr=subprocess.STDOUT)
+
+    def getLogFile(self):
+        return self.stdout
+    def isKilled(self):
+        return self.killed
+    def setKilled(self, killed):
+        self.killed = killed
+
+    def poll(self):
+        if (self.process):
+            return self.process.poll()
+        return False
+    def wait(self):
+        if (self.process):
+            return self.process.wait()
+        return False
+    def terminate(self):
+        if (self.process):
+            try:
+                self.process.terminate()
+
+                timeSlept = 0
+                while timeSlept < 4:
+                    if self.poll() != None:
+                        break
+                    time.sleep(0.1)
+                    timeSlept = timeSlept + 0.1
+
+                if self.poll() != None:
+                    self.killed = True
+                return
+            except IOError as ex:
+                if ex.errno != errno.ESRCH:
+                    raise ex
+        return False
+    def kill(self):
+        if (self.process):
+            try:
+                self.killed = True
+                return self.process.kill()
+            except IOError as ex:
+                if ex.errno != errno.ESRCH:
+                    raise ex
+        return False
+
+class ChrootServiceManager(Thread):
+    def __init__(self, servicesDirectory, logDirectory):
+        Thread.__init__(self, name="ServiceManagerThread")
+
+        self.log = logging.getLogger(LOG_NAME)
+        self.loc = servicesDirectory
+        self.logDirectory = logDirectory
+        self.services = self.loadServices()
+        self.runningServices = {}
+
+        self.running = True
+    def run(self):
+        for s in self.services:
+            if s["serviceInfo"]["autostart"]:
+                try:
+                    self.startService(s["serviceInfo"]["id"])
+                except Exception as ex:
+                    self.log.error("failed to start service: %s", ex)
+        self.watchdog()
+    def stop(self):
+        copy = dict(self.runningServices)
+        for id_ in copy:
+            try:
+                self.stopService(id_, failNotRunning=False)
+            except Exception as ex:
+                self.log.error("failed to stop service with id '%s': %s", id_, ex)
+                return ex
+        self.running = False
+        return True
+
+    def getService(self, id_):
+        service = None
+        for s in self.services:
+            if s["serviceInfo"]["id"] == id_:
+                service = s
+                break
+        return service
+    def getServices(self):
+        services = {}
+        for s in self.services:
+            services[s["serviceInfo"]["id"]] = s["serviceInfo"]["name"]
+        return services
+    def isRunning(self, id_):
+        if not self.getService(id_):
+            raise DroidtopError(reason=Reason.NO_SUCH_SERVICE)
+        copy = dict(self.runningServices)
+        return id_ in copy
+
+    def startService(self, id_, isRestart=False):
+        service = self.getService(id_)
+        if not service:
+            raise KeyError("service with id '%s' not found" % id_)
+        svc = service["serviceInfo"]
+
+        if id_ in self.runningServices and not isRestart:
+            raise KeyError("service '%s' is already running" % svc["name"])
+
+        logFile = open(os.path.join(self.logDirectory, "%s.log" % svc["id"]), "a")
+        firstRunFile = os.path.join(self.logDirectory, ".%s" % svc["id"])
+        if not os.path.exists(firstRunFile):
+            open(firstRunFile, "w")
+            if service["hasFirstRun"]:
+                args = []
+                if (service["hasFirstRunArgs"]):
+                    args = svc["firstRun"]["args"]
+                self.log.info("doing service '%s' first run ('%s' with args %s)...", svc["name"], svc["firstRun"]["binary"], args)
+                firstRunProcess = ChrootProcess(svc["firstRun"]["binary"], args, logFile=logFile)
+                firstRunProcess.start()
+                code = firstRunProcess.wait()
+                self.log.info("service '%s' first run return code: %d", svc["name"], code)
+        if service["hasPreLaunch"]:
+            args = []
+            if (service["hasPreLaunchArgs"]):
+                args = svc["preLaunch"]["args"]
+            self.log.info("doing service '%s' pre-launch ('%s' with args %s)...", svc["name"], svc["preLaunch"]["binary"], args)
+            preLaunchProcess = ChrootProcess(svc["preLaunch"]["binary"], args, logFile=logFile)
+            preLaunchProcess.start()
+            code = preLaunchProcess.wait()
+            self.log.info("service '%s' pre-launch return code: %d", svc["name"], code)
+
+        args = []
+        if service["hasArgs"]:
+            args = svc["args"]
+        if not isRestart:
+            self.log.info("starting service '%s'...", svc["name"])
+        process = ChrootProcess(svc["binary"], args, logFile=logFile)
+        for i in xrange(0, len(self.services)):
+            if self.services[i]["serviceInfo"]["id"] == id_:
+                self.services[i]["stopped"] = False
+        self.runningServices[id_] = process
+
+        process.start()
+    def stopService(self, id_, failNotRunning=True):
+        service = self.getService(id_)
+        if not service:
+            raise KeyError("service with id '%s' not found" % id_)
+        svc = service["serviceInfo"]
+
+        if id_ not in self.runningServices:
+            if not failNotRunning:
+                return
+            raise KeyError("service '%s' is not running" % svc["name"])
+
+        self.log.info("stopping service '%s'", svc["name"])
+        for i in xrange(0, len(self.services)):
+            if self.services[i]["serviceInfo"]["id"] == id_:
+                self.services[i]["stopped"] = True
+        if self.runningServices[id_].terminate() == False:
+            raise Exception("failed to terminate process for service '%s'" % svc["name"])
+
+        if id_ in self.runningServices:
+            if not self.runningServices[id_].isKilled():
+                self.log.error("service '%s' not stopped after 4 seconds, sending SIGKILL...", svc["name"])
+                self.runningServices[id_].kill()
+
+
+    def watchdog(self):
+        while self.running:
+            removals = []
+            for id_, process in self.runningServices.items():
+                service = self.getService(id_)
+                svc = service["serviceInfo"]
+
+                code = process.poll()
+                if code != None:
+                    self.log.info("service '%s' exited with return code %d", svc["name"], code)
+                    if service["hasRestart"] and not service["stopped"]:
+                        if service["restarts"] < svc["restart"] or svc["restart"] < 0:
+                            self.log.info("restarting service '%s' (restarts so far: %d)...", svc["name"], service["restarts"])
+                            try:
+                                self.startService(id_, isRestart=True)
+                            except Exception as ex:
+                                self.log.error("failed to restart service: %s", ex)
+                            service["restarts"] = service["restarts"] + 1
+                        else:
+                            removals.append(id_)
+                    else:
+                        removals.append(id_)
+            for id_ in removals:
+                del self.runningServices[id_]
+
+            time.sleep(0.5)
+
+    def loadServices(self):
+        serviceFiles = []
+        for directory, subdirs, files in os.walk(self.loc):
+            for file in files:
+                if (file.endswith(".json")):
+                    serviceFiles.append(os.path.join(directory, file))
+        serviceFiles = sorted(serviceFiles)
+        self.log.debug("service files: %s", serviceFiles)
+
+        services = []
+        for file in serviceFiles:
+            try:
+                f = open(file)
+                svc = json.loads(f.read())
+                self.validateService(svc)
+                for s in services:
+                    if s["serviceInfo"]["id"] == svc["id"]:
+                        raise KeyError("already loaded service with id '%s'" % svc["id"])
+                service = { "serviceInfo": svc, "stopped": False }
+                self.checkOptional(service)
+
+                services.append(service)
+                self.log.info("loaded service '%s' version %g", service["serviceInfo"]["name"], service["serviceInfo"]["version"])
+            except Exception as ex:
+                self.log.error("failed to read service file '%s': %s", file, ex)
+
+        self.log.info("loaded %d services", len(services))
+        return services
+    def checkKey(self, obj, key, type_):
+        t = None
+        try:
+            t = type(obj[key])
+            if t == unicode:
+                obj[key] = unicodedata.normalize("NFKD", obj[key]).encode("ascii", "ignore")
+                t = str
+        except:
+            raise ValueError("service must have key '%s'" % key)
+        if t != type_:
+            raise ValueError("value of service key '%s' must be of type '%s'" % (key, type_))
+    def checkArrayValues(self, obj, key, type_):
+        arr = obj[key]
+        for i, val in enumerate(arr):
+            if type(val) == unicode:
+                val = unicodedata.normalize("NFKD", val).encode("ascii", "ignore")
+                obj[key][i] = val
+            if type(val) != type_:
+                raise ValueError("values in array of key '%s' must be of type '%s'" % (key, type_))
+    def validateService(self, service):
+        self.checkKey(service, "id", str)
+        self.checkKey(service, "name", str)
+        self.checkKey(service, "version", float)
+        self.checkKey(service, "description", str)
+        self.checkKey(service, "binary", str)
+        self.checkKey(service, "autostart", bool)
+    def checkOptional(self, service):
+        svc = service["serviceInfo"]
+
+        try:
+            self.checkKey(svc, "args", list)
+            self.checkArrayValues(svc, "args", str)
+            service["hasArgs"] = True
+        except ValueError as ex:
+            self.log.debug("error checking if service has arguments, ignoring: %s", ex)
+            service["hasArgs"] = False
+
+        try:
+            self.checkKey(svc, "preLaunch", dict)
+            self.checkKey(svc["preLaunch"], "binary", str)
+            service["hasPreLaunch"] = True
+            try:
+                self.checkKey(svc["preLaunch"], "args", list)
+                self.checkArrayValues(svc["preLaunch"], "args", str)
+                service["hasPreLaunchArgs"] = True
+            except ValueError as ex:
+                self.log.debug("error checking if 'preLaunch' section has arguments, ignoring: %s", ex)
+        except ValueError as ex:
+            self.log.debug("error checking if service has a 'preLaunch' section, ignoring: %s", ex)
+            service["hasPreLaunch"] = False
+
+        try:
+            self.checkKey(svc, "firstRun", dict)
+            self.checkKey(svc["firstRun"], "binary", str)
+            service["hasFirstRun"] = True
+            try:
+                self.checkKey(svc["firstRun"], "args", list)
+                self.checkArrayValues(svc["firstRun"], "args", str)
+                service["hasFirstRunArgs"] = True
+            except ValueError as ex:
+                self.log.debug("error checking if 'firstRun' section has arguments, ignoring: %s", ex)
+        except ValueError as ex:
+            self.log.debug("error checking if service has a 'firstRun' section, ignoring: %s", ex)
+            service["hasFirstRun"] = False
+
+        try:
+            self.checkKey(svc, "restart", int)
+            service["hasRestart"] = True
+            service["restarts"] = 0
+        except ValueError as ex:
+            self.log.debug("error checking if service has a 'restart' option, ignoring: %s", ex)
+            service["hasRestart"] = False
+
+        return service
+
+serviceManager = None
+controlServer = None
+
+class RequestHandler:
+    def __init__(self, serviceManager):
+        self.serviceManager = serviceManager
+        self.log = logging.getLogger(LOG_NAME)
+
+    def getServices(self):
+        self.log.debug("received service info request, sending...")
+        return self.serviceManager.getServices()
+    def isServiceRunning(self, id):
+        self.log.debug("received request to see if service with id '%s' is running, attempting...", id)
+        return self.serviceManager.isRunning(id)
+    def startService(self, id):
+        self.log.info("recevied request to start service with id '%s', attempting...", id)
+        try:
+            self.serviceManager.startService(id)
+        except Exception as ex:
+            self.log.error("failed to start service: %s", ex)
+            raise DroidtopError(reason=Reason.ERROR, msg=str(ex))
+    def stopService(self, id):
+        self.log.info("recevied request to stop service with id '%s', attempting...", id)
+        try:
+            self.serviceManager.stopService(id)
+        except Exception as ex:
+            self.log.error("failed to stop service: %s", ex)
+            raise DroidtopError(reason=Reason.ERROR, msg=ex)
+    def shutdown(self):
+        self.log.info("received shutdown request, attempting...")
+        if self.serviceManager.running != True:
+            raise DroidtopError(reason=Reason.SERVICE_MANAGER_NOT_RUNNING)
+
+        result = serviceManager.stop()
+        if result != True:
+            raise DroidtopError(reason=Reason.ERROR, msg=str(result))
+
+        controlServer.stop()
+
+
+class ControlServer(TServer):
+  """Threaded server that spawns a new thread per each connection."""
+  def __init__(self, *args):
+    TServer.__init__(self, *args)
+    self.log = logging.getLogger(LOG_NAME)
+    self.running = True
+
+  def serve(self):
+    self.serverTransport.listen()
+    self.serverTransport.handle.settimeout(1.0)
+    while self.running:
+      try:
+        client = self.serverTransport.accept()
+        if not client:
+          continue
+        address, port, junk, junk2 = client.handle.getpeername()
+        t = Thread(name="ClientThread@%s:%d" % (address, port), target=self.handle, args=(client,))
+        t.start()
+      except socket.timeout:
+        pass
+      except socket.error as (code, msg):
+        if code == errno.EINTR:
+            pass
+      except Exception, x:
+        self.log.error("error getting new client: %s", x)
+  def handle(self, client):
+    itrans = self.inputTransportFactory.getTransport(client)
+    otrans = self.outputTransportFactory.getTransport(client)
+    iprot = self.inputProtocolFactory.getProtocol(itrans)
+    oprot = self.outputProtocolFactory.getProtocol(otrans)
+    try:
+      while self.running:
+        self.processor.process(iprot, oprot)
+    except TTransport.TTransportException, tx:
+      pass
+    except Exception, x:
+      self.log.exception(x)
+
+    itrans.close()
+    otrans.close()
+  def stop(self):
+    self.running = False
+
+def sighandler(sig, frame):
+    log = logging.getLogger(LOG_NAME)
+    try:
+        log.info("attempting to shut down...")
+        controlServer.stop()
+
+        result = serviceManager.stop()
+        if result != True:
+            raise result
+    except Exception as ex:
+        log.critical("failed to shut down (error: %s), killing self...\n", ex)
+        sys.exit(1)
+
+def main():
+    try:
+        opts, args = getopt.gnu_getopt(sys.argv[1:], "ho:s:l:", ["help", "logfile=", "service-output=", "logging-level="])
+    except getopt.GetoptError as ex:
+        usage(ex)
+
+    cmd, ext = os.path.splitext(os.path.basename(sys.argv[0]))
+    logFile = "/var/log/%s.log" % cmd
+    serviceOutputDirectory = "/var/log/droidtop_init/services/"
+    logLevel = logging.DEBUG
+
+    for opt, val in opts:
+        if opt in ("-h", "--help"):
+            usage()
+        if opt in ("-o", "--logfile"):
+            logFile = val
+        if opt in ("-s", "--service-output"):
+            try:
+                serviceOutputDirectory = val
+                if not os.path.exists(serviceOutputDirectory):
+                    os.makedirs(serviceOutputDirectory)
+            except Exception as ex:
+                usage(ex)
+        if opt in ("-l", "--logging-level"):
+            ll = val.upper()
+            if ll == "CRITICAL":
+                logLevel = logging.CRITICAL
+            elif ll == "ERROR":
+                logLevel = logging.ERROR
+            elif ll == "WARNING":
+                logLevel = logging.WARNING
+            elif ll == "INFO":
+                logLevel = logging.INFO
+            elif ll == "DEBUG":
+                logLevel = logging.DEBUG
+            else:
+                usage("'%s' is not a valid log level" % val)
+
+    FORMAT = "[%(asctime)-15s %(threadName)s %(levelname)s] %(message)s"
+    logFormatter = logging.Formatter(FORMAT)
+
+    logHandlers = []
+    stdHandler = logging.StreamHandler()
+    stdHandler.setFormatter(logFormatter)
+    fileHandler = logging.FileHandler(logFile)
+    fileHandler.setFormatter(logFormatter)
+
+    log = logging.getLogger(LOG_NAME)
+    log.setLevel(logLevel)
+    log.addHandler(stdHandler)
+    log.addHandler(fileHandler)
+    log.info("init starting up...")
+
+    signal.signal(signal.SIGINT, sighandler)
+    signal.signal(signal.SIGQUIT, sighandler)
+    signal.signal(signal.SIGTERM, sighandler)
+
+    global serviceManager
+    if not os.path.exists(serviceOutputDirectory):
+        os.makedirs(serviceOutputDirectory)
+    serviceManager = ChrootServiceManager("/etc/droidtop_services/", serviceOutputDirectory)
+
+    handler = RequestHandler(serviceManager)
+    processor = DroidtopInit.Processor(handler)
+    transport = TSocket.TServerSocket(port=2500)
+    tfactory = TTransport.TBufferedTransportFactory()
+    pfactory = TBinaryProtocol.TBinaryProtocolFactory()
+
+    global controlServer
+    controlServer = ControlServer(processor, transport, tfactory, pfactory)
+
+    serviceManager.start()
+
+    controlServer.serve()
+
+    log.info("init shutting down...\n")
+
+if __name__ == "__main__":
+   main()

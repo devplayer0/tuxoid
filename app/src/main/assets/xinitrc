@@ -1,0 +1,3 @@
+pulseaudio --start --exit-idle-time 99999
+xterm &
+exec openbox-session

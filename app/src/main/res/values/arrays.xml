@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="img_sizes">
+        <item>1024</item>
+        <item>2048</item>
+        <item>4096</item>
+        <item>8192</item>
+        <item>16384</item>
+        <item>32768</item>
+    </string-array>
+    <string-array name="img_sizes_values">
+        <item>1GB</item>
+        <item>2GB</item>
+        <item>4GB</item>
+        <item>8GB</item>
+        <item>16GB</item>
+        <item>32GB</item>
+    </string-array>
+</resources>

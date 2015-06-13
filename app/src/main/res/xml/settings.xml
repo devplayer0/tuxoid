@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+    <PreferenceCategory android:title="@string/pref_video">
+        <ListPreference
+            android:key="resolution"
+            android:title="@string/pref_video_resolution" />
+    </PreferenceCategory>
+    <PreferenceCategory android:title="@string/pref_audio" >
+        <SwitchPreference
+            android:key="enable_audio"
+            android:title="@string/pref_enable_audio"
+            android:summary="@string/pref_enable_audio_summary"
+            android:defaultValue="true" />
+    </PreferenceCategory>
+    <PreferenceCategory android:title="@string/pref_input">
+        <SwitchPreference
+            android:key="enable_mouse"
+            android:title="@string/pref_enable_mouse"
+            android:summary="@string/pref_enable_mouse_summary"
+            android:defaultValue="true" />
+        <SwitchPreference
+            android:key="enable_keyboard"
+            android:title="@string/pref_enable_keyboard"
+            android:summary="@string/pref_enable_keyboard_summary"
+            android:defaultValue="true" />
+    </PreferenceCategory>
+    <PreferenceCategory android:title="@string/pref_setup">
+        <EditTextPreference
+            android:key="username"
+            android:title="@string/pref_username"
+            android:defaultValue="tuxoid" />
+        <ListPreference
+            android:key="img_size"
+            android:title="@string/pref_image_size"
+            android:defaultValue="4096"
+            android:entries="@array/img_sizes_values"
+            android:entryValues="@array/img_sizes" />
+        <EditTextPreference
+            android:key="img_name"
+            android:title="@string/pref_image_name"
+            android:defaultValue="system.img" />
+        <EditTextPreference
+            android:key="hostname"
+            android:title="@string/pref_hostname"
+            android:defaultValue="android" />
+    </PreferenceCategory>
+</PreferenceScreen>

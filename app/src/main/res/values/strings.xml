@@ -1,0 +1,29 @@
+<resources>
+    <string name="app_name">Tuxoid</string>
+
+    <string name="action_settings">Settings</string>
+
+    <string name="action_start">Start</string>
+    <string name="action_stop">Stop</string>
+    <string name="action_open_gui">Open desktop</string>
+    <string name="action_clear">Clear log</string>
+    
+    <string name="pref_video">Video</string>
+    <string name="pref_video_resolution">Resolution</string>
+
+    <string name="pref_audio">Audio</string>
+    <string name="pref_enable_audio">Enable audio</string>
+    <string name="pref_enable_audio_summary">Use audio support in Tuxoid</string>
+
+    <string name="pref_input">Input</string>
+    <string name="pref_enable_mouse">Enable mouse</string>
+    <string name="pref_enable_mouse_summary">Use mouse support in Tuxoid</string>
+    <string name="pref_enable_keyboard">Enable keyboard</string>
+    <string name="pref_enable_keyboard_summary">Use keyboard support in Tuxoid</string>
+
+    <string name="pref_setup">Setup</string>
+    <string name="pref_username">Default username</string>
+    <string name="pref_image_size">Disk image size</string>
+    <string name="pref_image_name">Disk image name</string>
+    <string name="pref_hostname">System name</string>
+</resources>
