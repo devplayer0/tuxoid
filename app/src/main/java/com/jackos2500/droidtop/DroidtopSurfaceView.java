@@ -3,7 +3,6 @@ package com.jackos2500.droidtop;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Point;
-import android.opengl.GLES30;
 import android.opengl.GLSurfaceView;
 import android.preference.PreferenceManager;
 import android.util.Log;
@@ -22,7 +21,7 @@ public class DroidtopSurfaceView extends GLSurfaceView {
         super(context);
         this.listener = listener;
 
-        setEGLContextClientVersion(3);
+        setEGLContextClientVersion(2);
 
         renderer = new Renderer();
         setRenderer(renderer);
