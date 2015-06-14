@@ -38,7 +38,7 @@ public class Util {
         Display display = wm.getDefaultDisplay();
 
         size = new Point();
-        display.getSize(size);
+        display.getRealSize(size);
         if (size.y > size.x) {
             int xCopy = size.x;
             size.x = size.y;
