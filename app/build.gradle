@@ -6,7 +6,7 @@ android {
 
     defaultConfig {
         applicationId "com.jackos2500.droidtop"
-        minSdkVersion 21
+        minSdkVersion 16
         targetSdkVersion 22
         versionCode 1
         versionName "0.1"
@@ -23,4 +23,5 @@ dependencies {
     compile fileTree(include: ['*.jar'], dir: 'libs')
     compile 'eu.chainfire:libsuperuser:+'
     compile 'ch.acra:acra:4.6.2'
+    compile "com.android.support:appcompat-v7:+"
 }
