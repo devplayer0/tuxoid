@@ -182,10 +182,7 @@ public class LinuxManager {
 
         debug(TAG, "root shell started");
 
-        debug(TAG, "setting SELinux mode to PERMISSIVE");
-        if (runCommandWait("/system/bin/setenforce 0") != 0) {
-            throw new LinuxException("failed to set SELinux mode to PERMISSIVE");
-        }
+        setSELinuxMode(false);
 
         getAndTestBusybox();
         File[] inputFiles = new File(Constants.INPUT_PATH).listFiles();
@@ -674,6 +671,18 @@ public class LinuxManager {
         return audioSocket.isConnected() && !audioClosed;
     }
 
+    private void setSELinuxMode(boolean enforce) throws LinuxException {
+        if (runCommandWait("[ -f /system/bin/setenforce ]") == 0) {
+            int flag = enforce ? 1 : 0;
+            String text = enforce ? "ENFORCING" : "PERMISSIVE";
+
+            debug(TAG, "setting SELinux mode to "+text);
+            if (runCommandWait("/system/bin/setenforce "+flag) != 0) {
+                throw new LinuxException("failed to set SELinux mode to "+text);
+            }
+        }
+    }
+
     public void boot() throws LinuxException {
         if (!isInitialized()) {
             throw new LinuxException("init() not called, cannot boot");
@@ -891,10 +900,7 @@ public class LinuxManager {
         debug(TAG, "tearing down loop device...");
         busyboxCommandWait("losetup -d " + Constants.LOOP_DEV);
 
-        debug(TAG, "setting SELinux mode to ENFORCING");
-        if (runCommandWait("/system/bin/setenforce 1") != 0) {
-            throw new LinuxException("failed to set SELinux mode to ENFORCING");
-        }
+        setSELinuxMode(true);
 
         booted = false;
     }
