@@ -3,6 +3,7 @@ package com.jackos2500.droidtop;
 import android.app.Activity;
 import android.media.AudioManager;
 import android.os.Bundle;
+import android.support.v7.app.ActionBarActivity;
 import android.util.Log;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
@@ -11,7 +12,7 @@ import android.view.WindowManager;
 
 import static com.jackos2500.droidtop.DroidtopApplication.debug;
 
-public class DroidtopActivity extends Activity implements DroidtopSurfaceView.ErrorListener {
+public class DroidtopActivity extends ActionBarActivity implements DroidtopSurfaceView.ErrorListener {
     private static final String TAG = "DroidtopActivity";
 
     private DroidtopSurfaceView surfaceView;

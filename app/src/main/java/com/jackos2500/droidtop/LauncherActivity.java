@@ -1,15 +1,12 @@
 package com.jackos2500.droidtop;
 
-import android.app.Activity;
 import android.content.Intent;
-import android.graphics.Point;
 import android.os.Bundle;
 import android.os.Handler;
 import android.preference.PreferenceManager;
-import android.view.GestureDetector;
+import android.support.v7.app.ActionBarActivity;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.view.MotionEvent;
 import android.view.View;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -24,7 +21,7 @@ import java.util.Locale;
 import static com.jackos2500.droidtop.DroidtopApplication.debug;
 
 
-public class LauncherActivity extends Activity {
+public class LauncherActivity extends ActionBarActivity {
     private static Handler handler;
     private static String logText = "";
     private static TextView log;

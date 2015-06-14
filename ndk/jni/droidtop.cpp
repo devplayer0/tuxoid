@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 #include <stdlib.h>
 
-#include <GLES3/gl3.h>
+#include <GLES2/gl2.h>
 
 #include "droidtop.h"
 #include "util.h"
